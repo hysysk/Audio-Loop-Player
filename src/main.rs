@@ -1,5 +1,6 @@
 mod app;
 mod audio;
+mod theme;
 
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {

@@ -8,6 +8,7 @@ use egui::{Color32, FontId, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 use crate::audio::{
     compute_waveform_peaks, decode_audio, AudioData, AudioEngine, Peak,
 };
+use crate::theme::Theme;
 
 const NUM_PEAKS: usize = 2000;
 const AUDIO_EXTENSIONS: &[&str] = &[
@@ -26,6 +27,7 @@ struct FileEntry {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 pub struct App {
+    theme: Theme,
     audio: AudioEngine,
 
     // File browser
@@ -68,6 +70,7 @@ impl App {
         let dir_entries = scan_directory(&current_dir);
 
         Self {
+            theme: Theme::teenage_engineering(),
             audio,
             current_dir,
             dir_entries,
@@ -159,7 +162,7 @@ impl App {
         ui.separator();
 
         egui::ScrollArea::vertical()
-            .id_source("filebrowser")
+            .id_salt("filebrowser")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for entry in self.dir_entries.clone() {
@@ -168,7 +171,32 @@ impl App {
                     let icon = if entry.is_dir { "📁" } else { "🎵" };
                     let label = format!("{} {}", icon, entry.name);
 
-                    let resp = ui.selectable_label(is_selected, &label);
+                    // Allocate the full row rect first, then interact on it.
+                    // This makes the entire row (not just the text) clickable.
+                    let row_width = ui.available_width();
+                    let row_height = ui.spacing().interact_size.y;
+                    let (rect, resp) = ui.allocate_exact_size(
+                        Vec2::new(row_width, row_height),
+                        Sense::click(),
+                    );
+                    if ui.is_rect_visible(rect) {
+                        let visuals = ui.style().interact_selectable(&resp, is_selected);
+                        if is_selected || resp.hovered() {
+                            ui.painter().rect_filled(rect, visuals.rounding, visuals.bg_fill);
+                        }
+                        // Use egui's layout engine so font-fallback metrics
+                        // (CJK vs Latin ascent/descent) are handled correctly.
+                        let font_id = egui::TextStyle::Button.resolve(ui.style());
+                        let galley = ui.fonts(|f| {
+                            f.layout_no_wrap(label.clone(), font_id, visuals.text_color())
+                        });
+                        let pad = ui.spacing().button_padding.x;
+                        let text_pos = egui::pos2(
+                            rect.min.x + pad,
+                            rect.center().y - galley.size().y / 2.0,
+                        );
+                        ui.painter().galley(text_pos, galley, visuals.text_color());
+                    }
                     if resp.clicked() {
                         if entry.is_dir {
                             self.current_dir = entry.path.clone();
@@ -191,26 +219,23 @@ impl App {
         let (response, painter) = ui.allocate_painter(desired_size, Sense::click_and_drag());
         let rect = response.rect;
 
+        let t = &self.theme;
+
         // Background
-        painter.rect_filled(
-            rect,
-            4.0,
-            Color32::from_rgb(20, 22, 35),
-        );
+        painter.rect_filled(rect, 2.0, t.bg);
 
         let duration = self.audio_duration;
 
         if duration <= 0.0 {
-            // Placeholder text
             let msg = if self.is_loading { "Loading…" } else { "No file loaded" };
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 msg,
-                FontId::proportional(15.0),
-                Color32::from_rgb(90, 95, 115),
+                FontId::proportional(13.0),
+                t.text_dim,
             );
-            painter.rect_stroke(rect, 4.0, Stroke::new(1.0, Color32::from_rgb(45, 50, 65)));
+            painter.rect_stroke(rect, 2.0, Stroke::new(1.0, t.border));
             return;
         }
 
@@ -222,11 +247,11 @@ impl App {
             painter.rect_filled(
                 Rect::from_min_max(Pos2::new(x0, rect.top()), Pos2::new(x1, rect.bottom())),
                 0.0,
-                Color32::from_rgba_unmultiplied(80, 140, 255, 45),
+                t.loop_fill,
             );
-            let marker_stroke = Stroke::new(2.0, Color32::from_rgb(100, 160, 255));
-            painter.line_segment([Pos2::new(x0, rect.top()), Pos2::new(x0, rect.bottom())], marker_stroke);
-            painter.line_segment([Pos2::new(x1, rect.top()), Pos2::new(x1, rect.bottom())], marker_stroke);
+            let marker = Stroke::new(1.0, t.accent);
+            painter.line_segment([Pos2::new(x0, rect.top()), Pos2::new(x0, rect.bottom())], marker);
+            painter.line_segment([Pos2::new(x1, rect.top()), Pos2::new(x1, rect.bottom())], marker);
         }
 
         // Active drag selection preview
@@ -236,7 +261,7 @@ impl App {
             painter.rect_filled(
                 Rect::from_min_max(Pos2::new(x0, rect.top()), Pos2::new(x1, rect.bottom())),
                 0.0,
-                Color32::from_rgba_unmultiplied(160, 215, 160, 60),
+                t.drag_fill,
             );
         }
 
@@ -258,14 +283,14 @@ impl App {
                 let x = rect.left() + px as f32 + 0.5;
                 painter.line_segment(
                     [Pos2::new(x, y_top), Pos2::new(x, y_bot)],
-                    Stroke::new(1.0, Color32::from_rgb(80, 190, 120)),
+                    Stroke::new(1.0, t.waveform),
                 );
             }
 
             // Zero-line
             painter.line_segment(
                 [Pos2::new(rect.left(), mid_y), Pos2::new(rect.right(), mid_y)],
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 15)),
+                Stroke::new(1.0, t.zero_line),
             );
         }
 
@@ -276,12 +301,12 @@ impl App {
             let px = rect.left() + norm * rect.width();
             painter.line_segment(
                 [Pos2::new(px, rect.top()), Pos2::new(px, rect.bottom())],
-                Stroke::new(2.0, Color32::WHITE),
+                Stroke::new(1.5, Color32::WHITE),
             );
         }
 
         // Border
-        painter.rect_stroke(rect, 4.0, Stroke::new(1.0, Color32::from_rgb(50, 55, 70)));
+        painter.rect_stroke(rect, 2.0, Stroke::new(1.0, t.border));
 
         // ─── Mouse interaction ────────────────────────────────────────────
 
@@ -474,11 +499,16 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_millis(33)); // ~30 fps
         }
 
-        // Apply a dark visuals theme
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = Color32::from_rgb(18, 20, 30);
-        visuals.window_fill = Color32::from_rgb(18, 20, 30);
-        ctx.set_visuals(visuals);
+        self.theme.apply_visuals(ctx);
+
+        // Space bar → toggle play / pause
+        if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
+            if self.audio.atomics.playing.load(Ordering::Relaxed) {
+                self.audio.pause();
+            } else {
+                self.audio.play();
+            }
+        }
 
         // ── Left panel: file browser ──────────────────────────────────────
         egui::SidePanel::left("file_browser")
@@ -600,8 +630,13 @@ fn dirs_for_start() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
 }
 
-/// Load a CJK-capable system font and register it as a fallback in egui.
-/// Without this, Japanese filenames (and any CJK text) render as □ boxes.
+/// Vertical baseline tweak for Hiragino Sans.
+/// Hiragino's ascent metrics place glyphs slightly higher than egui's built-in
+/// Latin fonts. A positive value nudges the font downward (in pixels).
+/// Adjust here if the font feels misaligned after a system or egui update.
+const CJK_Y_OFFSET_PX: f32 = 4.0;
+
+/// Load a CJK-capable system font and register it as the primary font in egui.
 fn setup_cjk_font(ctx: &egui::Context) {
     // Candidate paths: macOS ships Hiragino Sans which covers Japanese fully.
     // Try multiple spellings across macOS versions.
@@ -624,12 +659,13 @@ fn setup_cjk_font(ctx: &egui::Context) {
         if let Ok(bytes) = std::fs::read(path) {
             let mut data = egui::FontData::from_owned(bytes);
             data.index = *index;
+            data.tweak.y_offset = CJK_Y_OFFSET_PX;
             fonts.font_data.insert("cjk".to_owned(), data);
 
-            // Add after the built-in fonts so ASCII still uses the default,
-            // and CJK glyphs fall through to this font.
+            // Insert at the front so Hiragino is the primary font for all glyphs.
+            // Built-in fonts remain as fallback for anything Hiragino doesn't cover.
             for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-                fonts.families.entry(family).or_default().push("cjk".to_owned());
+                fonts.families.entry(family).or_default().insert(0, "cjk".to_owned());
             }
             break;
         }

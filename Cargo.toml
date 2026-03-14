@@ -8,8 +8,8 @@ name = "audioplayer"
 path = "src/main.rs"
 
 [dependencies]
-eframe = "0.28"
-egui = "0.28"
+eframe = "0.29"
+egui = "0.29"
 cpal = "0.15"
 symphonia = { version = "0.5", features = ["all"] }
 anyhow = "1"
