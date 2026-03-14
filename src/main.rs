@@ -7,7 +7,7 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 650.0])
             .with_min_inner_size([700.0, 450.0])
-            .with_title("Audio Player — Language Learning"),
+            .with_title("Audio Loop Player"),
         ..Default::default()
     };
 
