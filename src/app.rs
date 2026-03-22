@@ -66,7 +66,7 @@ impl App {
 
         let audio = AudioEngine::new().expect("Failed to initialize audio engine");
 
-        let current_dir = dirs_for_start();
+        let current_dir = load_last_dir().unwrap_or_else(dirs_for_start);
         let dir_entries = scan_directory(&current_dir);
 
         Self {
@@ -202,6 +202,7 @@ impl App {
                             self.current_dir = entry.path.clone();
                             self.dir_entries = scan_directory(&self.current_dir);
                             self.selected_file = None;
+                            save_last_dir(&self.current_dir);
                         } else {
                             self.selected_file = Some(entry.path.clone());
                             self.start_loading(entry.path.clone());
@@ -616,6 +617,39 @@ fn short_path(path: &std::path::Path) -> String {
             parts[n - 1].to_string_lossy()
         ),
     }
+}
+
+fn last_dir_config_path() -> PathBuf {
+    let base = if cfg!(target_os = "macos") {
+        std::env::var("HOME")
+            .map(|h| PathBuf::from(h).join("Library/Application Support"))
+            .unwrap_or_else(|_| PathBuf::from("."))
+    } else if cfg!(target_os = "windows") {
+        std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."))
+    } else {
+        std::env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+            .unwrap_or_else(|_| PathBuf::from("."))
+    };
+    base.join("audioplayer").join("last_dir.txt")
+}
+
+fn load_last_dir() -> Option<PathBuf> {
+    std::fs::read_to_string(last_dir_config_path())
+        .ok()
+        .map(|s| PathBuf::from(s.trim()))
+        .filter(|p| p.is_dir())
+}
+
+fn save_last_dir(dir: &PathBuf) {
+    let path = last_dir_config_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, dir.to_string_lossy().as_bytes());
 }
 
 fn dirs_for_start() -> PathBuf {
